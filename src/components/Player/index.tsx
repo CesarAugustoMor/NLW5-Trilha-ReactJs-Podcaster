@@ -1,8 +1,9 @@
-import React, { useContext, useEffect, useRef } from 'react';
+import { useEffect, useRef, useMemo, useState, useCallback } from 'react';
 import Image from 'next/image';
 import Slider from 'rc-slider';
 
-import PlayerContext from '../../contexts/PlayerContext';
+import { usePlayer } from '../../contexts/PlayerContext';
+import convertDurationToTimeString from '../../utils/convertDurationToTimeString';
 
 import styles from './styles.module.scss';
 import 'rc-slider/assets/index.css';
@@ -10,13 +11,24 @@ import 'rc-slider/assets/index.css';
 const Player: React.FC = () => {
   const audioRef = useRef<HTMLAudioElement>(null);
 
+  const [progress, setProgress] = useState(0);
+
   const {
     episodeList,
     currentEpisodeIndex,
     isPlaying,
     togglePlay,
     setPlayingState,
-  } = useContext(PlayerContext);
+    playNext,
+    playPrevious,
+    hasNext,
+    isLooping,
+    hasPrevious,
+    toggleLoop,
+    toggleShuffle,
+    isShuffling,
+    clearPlayerState,
+  } = usePlayer();
 
   useEffect(() => {
     if (!audioRef.current) {
@@ -30,7 +42,41 @@ const Player: React.FC = () => {
     }
   }, [isPlaying]);
 
-  const episode = episodeList[currentEpisodeIndex];
+  const setupProgressListener = useCallback(() => {
+    if (audioRef.current) {
+      audioRef.current.currentTime = 0;
+    }
+  }, [audioRef]);
+
+  const handleTimeUpdate = useCallback(() => {
+    if (audioRef.current) {
+      setProgress(Math.floor(audioRef.current.currentTime));
+    }
+  }, [audioRef]);
+
+  const handleSeek = useCallback(
+    (amount: number) => {
+      if (audioRef.current) {
+        audioRef.current.currentTime = amount;
+        setProgress(amount);
+      }
+    },
+    [audioRef]
+  );
+
+  const handleEpisodeEnded = useCallback(() => {
+    if (hasNext) {
+      playNext();
+    } else {
+      clearPlayerState();
+    }
+  }, [hasNext]);
+
+  const episode = useMemo(() => {
+    console.log(episodeList[currentEpisodeIndex]);
+
+    return episodeList[currentEpisodeIndex];
+  }, [episodeList, currentEpisodeIndex]);
   return (
     <div className={styles.playerContainer}>
       <header>
@@ -57,10 +103,13 @@ const Player: React.FC = () => {
 
       <footer className={!episode ? styles.empty : ''}>
         <div className={styles.progress}>
-          <span>00:00</span>
+          <span>{convertDurationToTimeString(progress)}</span>
           <div className={styles.slider}>
             {episode ? (
               <Slider
+                max={episode?.file.duration ?? 0}
+                value={progress}
+                onChange={handleSeek}
                 trackStyle={{ backgroundColor: '#04d361' }}
                 railStyle={{ backgroundColor: '#9f75ff' }}
                 handleStyle={{ borderColor: '#04d361', borderWidth: 4 }}
@@ -69,24 +118,36 @@ const Player: React.FC = () => {
               <div className={styles.emptySlider} />
             )}
           </div>
-          <span>00:00</span>
+          <span>{episode?.durationAsString ?? '00:00:00'}</span>
         </div>
 
         {episode && (
           <audio
+            src={episode.file.url}
             autoPlay
+            loop={isLooping}
             ref={audioRef}
+            onEnded={handleEpisodeEnded}
             onPlay={() => setPlayingState(true)}
             onPause={() => setPlayingState(false)}
-          >
-            <source src={episode.file.url} />
-          </audio>
+            onTimeUpdate={handleTimeUpdate}
+            onLoadedMetadata={setupProgressListener}
+          />
         )}
         <div className={styles.buttons}>
-          <button type="button" disabled={!episode}>
+          <button
+            type="button"
+            disabled={!episode || episodeList.length === 1}
+            className={isShuffling ? styles.isActive : ''}
+            onClick={toggleShuffle}
+          >
             <img src="/shuffle.svg" alt="Embaralhar" />
           </button>
-          <button type="button" disabled={!episode}>
+          <button
+            type="button"
+            disabled={!episode || !hasPrevious}
+            onClick={playPrevious}
+          >
             <img src="/play-previous.svg" alt="Tocar anterior" />
           </button>
           <button
@@ -101,10 +162,19 @@ const Player: React.FC = () => {
               <img src="/play.svg" alt="Tocar" />
             )}
           </button>
-          <button type="button" disabled={!episode}>
+          <button
+            type="button"
+            disabled={!episode || !hasNext}
+            onClick={playNext}
+          >
             <img src="/play-next.svg" alt="Tocar próxima" />
           </button>
-          <button type="button" disabled={!episode}>
+          <button
+            type="button"
+            className={isLooping ? styles.isActive : ''}
+            disabled={!episode}
+            onClick={toggleLoop}
+          >
             <img src="/repeat.svg" alt="Repetir" />
           </button>
         </div>
